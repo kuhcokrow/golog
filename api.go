@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/kuhcokrow/golog/ui"
 )
 
 // Handler serves the dashboard and its API. Mount it at Config.Path, e.g.
@@ -13,6 +15,7 @@ func (g *Golog) Handler() http.Handler {
 	mux.HandleFunc("GET /api/entries", g.listEntries)
 	mux.HandleFunc("GET /api/entries/{id}", g.getEntry)
 	mux.HandleFunc("DELETE /api/entries", g.clearEntries)
+	mux.Handle("GET /", http.FileServerFS(ui.FS()))
 
 	h := http.StripPrefix(g.cfg.Path, mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
