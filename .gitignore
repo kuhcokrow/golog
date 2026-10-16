@@ -1,3 +1,5 @@
 CLAUDE.md
 ui/node_modules
 ui/tsconfig.tsbuildinfo
+go.work
+go.work.sum
