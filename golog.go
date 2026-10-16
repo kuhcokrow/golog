@@ -19,8 +19,19 @@ type Config struct {
 	Path string
 	// Store defaults to an in-memory store holding the latest 1000 entries.
 	Store Store
-	// Authorize guards the dashboard. When nil, everyone can access it.
+	// BasicAuth makes the browser ask for a username and password before
+	// showing the dashboard. Only use it over HTTPS outside of localhost.
+	BasicAuth *BasicAuth
+	// Authorize guards the dashboard. When both BasicAuth and Authorize are
+	// set, a request must pass both. When neither is set, everyone can access
+	// the dashboard.
 	Authorize func(r *http.Request) bool
+}
+
+type BasicAuth struct {
+	Username string
+	// Password must not be empty.
+	Password string
 }
 
 type Golog struct {
@@ -34,6 +45,11 @@ func New(cfg Config) *Golog {
 	}
 	if cfg.Store == nil {
 		cfg.Store = NewMemoryStore(1000)
+	}
+	// Failing loudly beats silently exposing the dashboard when, for example,
+	// the environment variable holding the password is missing.
+	if cfg.BasicAuth != nil && cfg.BasicAuth.Password == "" {
+		panic("golog: BasicAuth.Password must not be empty")
 	}
 	return &Golog{cfg: cfg}
 }
@@ -59,7 +75,12 @@ func (g *Golog) RecordRequest(ctx context.Context, start time.Time, c RequestCon
 // Handler serves the dashboard and its API. Mount it at Config.Path, e.g.
 // mux.Handle("/golog/", g.Handler()).
 func (g *Golog) Handler() http.Handler {
-	return api.Handler(g.cfg.Path, g.cfg.Store, g.cfg.Authorize)
+	access := api.Access{Authorize: g.cfg.Authorize}
+	if g.cfg.BasicAuth != nil {
+		access.Username = g.cfg.BasicAuth.Username
+		access.Password = g.cfg.BasicAuth.Password
+	}
+	return api.Handler(g.cfg.Path, g.cfg.Store, access)
 }
 
 // WrapDriver returns a connector that records every query. Use it with

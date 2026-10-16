@@ -61,3 +61,69 @@ func TestSettingsAPIRequiresAuthorization(t *testing.T) {
 		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
+
+func TestBasicAuth(t *testing.T) {
+	g, _ := newGolog(golog.Config{BasicAuth: &golog.BasicAuth{Username: "admin", Password: "secret"}})
+	h := g.Handler()
+
+	tests := []struct {
+		name       string
+		user, pass string
+		setAuth    bool
+		want       int
+	}{
+		{"no credentials", "", "", false, http.StatusUnauthorized},
+		{"wrong password", "admin", "nope", true, http.StatusUnauthorized},
+		{"wrong username", "root", "secret", true, http.StatusUnauthorized},
+		{"correct", "admin", "secret", true, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/golog/api/entries", nil)
+			if tt.setAuth {
+				req.SetBasicAuth(tt.user, tt.pass)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("expected %d, got %d", tt.want, rec.Code)
+			}
+			if tt.want == http.StatusUnauthorized && !strings.HasPrefix(rec.Header().Get("WWW-Authenticate"), "Basic ") {
+				t.Fatal("401 should ask the browser for basic auth credentials")
+			}
+		})
+	}
+}
+
+func TestBasicAuthWithAuthorize(t *testing.T) {
+	g, _ := newGolog(golog.Config{
+		BasicAuth: &golog.BasicAuth{Username: "admin", Password: "secret"},
+		Authorize: func(r *http.Request) bool { return r.Header.Get("X-Team") == "dev" },
+	})
+	h := g.Handler()
+
+	req := httptest.NewRequest("GET", "/golog/api/entries", nil)
+	req.SetBasicAuth("admin", "secret")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("passing basic auth alone should not be enough, got %d", rec.Code)
+	}
+
+	req.Header.Set("X-Team", "dev")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("passing both should be allowed, got %d", rec.Code)
+	}
+}
+
+func TestBasicAuthRejectsEmptyPassword(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("New should panic when BasicAuth.Password is empty")
+		}
+	}()
+	golog.New(golog.Config{BasicAuth: &golog.BasicAuth{Username: "admin"}})
+}

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -15,8 +17,15 @@ type handler struct {
 	store store.Store
 }
 
+type Access struct {
+	// Basic auth is enabled when Password is set.
+	Username  string
+	Password  string
+	Authorize func(*http.Request) bool
+}
+
 // Handler serves the dashboard and its JSON API under path.
-func Handler(path string, s store.Store, authorize func(*http.Request) bool) http.Handler {
+func Handler(path string, s store.Store, access Access) http.Handler {
 	g := &handler{store: s}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/entries", g.listEntries)
@@ -27,13 +36,36 @@ func Handler(path string, s store.Store, authorize func(*http.Request) bool) htt
 	mux.Handle("GET /", http.FileServerFS(dashboard.FS()))
 
 	h := http.StripPrefix(path, mux)
+	user := sha256.Sum256([]byte(access.Username))
+	pass := sha256.Sum256([]byte(access.Password))
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if authorize != nil && !authorize(r) {
+		if access.Password != "" && !checkBasicAuth(r, user, pass) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Golog", charset="UTF-8"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if access.Authorize != nil && !access.Authorize(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// Both values are hashed first so the comparison takes the same time whatever
+// their length, and both are always compared so a wrong username is not
+// distinguishable from a wrong password.
+func checkBasicAuth(r *http.Request, user, pass [32]byte) bool {
+	u, p, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+	gotUser := sha256.Sum256([]byte(u))
+	gotPass := sha256.Sum256([]byte(p))
+	userOK := subtle.ConstantTimeCompare(gotUser[:], user[:])
+	passOK := subtle.ConstantTimeCompare(gotPass[:], pass[:])
+	return userOK&passOK == 1
 }
 
 func (g *handler) listEntries(w http.ResponseWriter, r *http.Request) {
