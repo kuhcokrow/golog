@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gofiber/fiber/v3 v3.6.1
-	github.com/kuhcokrow/golog v0.0.0
+	github.com/kuhcokrow/golog v1.1.0
 )
 
 require (

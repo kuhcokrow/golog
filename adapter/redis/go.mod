@@ -3,7 +3,7 @@ module github.com/kuhcokrow/golog/adapter/redis
 go 1.26.0
 
 require (
-	github.com/kuhcokrow/golog v0.0.0
+	github.com/kuhcokrow/golog v1.1.0
 	github.com/redis/go-redis/v9 v9.23.0
 )
 

@@ -3,7 +3,7 @@ module github.com/kuhcokrow/golog/adapter/gorm
 go 1.25.0
 
 require (
-	github.com/kuhcokrow/golog v0.0.0
+	github.com/kuhcokrow/golog v1.1.0
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
 )
