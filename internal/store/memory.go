@@ -1,12 +1,14 @@
-package golog
+package store
 
 import (
 	"context"
 	"sync"
+
+	"github.com/kuhcokrow/golog/internal/entry"
 )
 
 type Filter struct {
-	Type      EntryType
+	Type      entry.EntryType
 	RequestID string
 	Limit     int
 	Offset    int
@@ -14,24 +16,24 @@ type Filter struct {
 
 // Store results from List must be ordered newest first.
 type Store interface {
-	Save(ctx context.Context, e Entry) error
-	List(ctx context.Context, f Filter) ([]Entry, error)
-	Get(ctx context.Context, id string) (Entry, bool, error)
+	Save(ctx context.Context, e entry.Entry) error
+	List(ctx context.Context, f Filter) ([]entry.Entry, error)
+	Get(ctx context.Context, id string) (entry.Entry, bool, error)
 	Clear(ctx context.Context) error
 }
 
-type MemoryStore struct {
+type Memory struct {
 	mu      sync.RWMutex
-	entries []Entry
+	entries []entry.Entry
 	next    int
 	full    bool
 }
 
-func NewMemoryStore(max int) *MemoryStore {
-	return &MemoryStore{entries: make([]Entry, max)}
+func NewMemory(max int) *Memory {
+	return &Memory{entries: make([]entry.Entry, max)}
 }
 
-func (s *MemoryStore) Save(_ context.Context, e Entry) error {
+func (s *Memory) Save(_ context.Context, e entry.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries[s.next] = e
@@ -42,7 +44,7 @@ func (s *MemoryStore) Save(_ context.Context, e Entry) error {
 	return nil
 }
 
-func (s *MemoryStore) each(fn func(Entry) bool) {
+func (s *Memory) each(fn func(entry.Entry) bool) {
 	n := s.next
 	if s.full {
 		n = len(s.entries)
@@ -55,12 +57,12 @@ func (s *MemoryStore) each(fn func(Entry) bool) {
 	}
 }
 
-func (s *MemoryStore) List(_ context.Context, f Filter) ([]Entry, error) {
+func (s *Memory) List(_ context.Context, f Filter) ([]entry.Entry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := []Entry{}
+	result := []entry.Entry{}
 	skipped := 0
-	s.each(func(e Entry) bool {
+	s.each(func(e entry.Entry) bool {
 		if (f.Type != "" && e.Type != f.Type) || (f.RequestID != "" && e.RequestID != f.RequestID) {
 			return true
 		}
@@ -74,12 +76,12 @@ func (s *MemoryStore) List(_ context.Context, f Filter) ([]Entry, error) {
 	return result, nil
 }
 
-func (s *MemoryStore) Get(_ context.Context, id string) (Entry, bool, error) {
+func (s *Memory) Get(_ context.Context, id string) (entry.Entry, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var found Entry
+	var found entry.Entry
 	ok := false
-	s.each(func(e Entry) bool {
+	s.each(func(e entry.Entry) bool {
 		if e.ID == id {
 			found, ok = e, true
 			return false
@@ -89,10 +91,10 @@ func (s *MemoryStore) Get(_ context.Context, id string) (Entry, bool, error) {
 	return found, ok, nil
 }
 
-func (s *MemoryStore) Clear(_ context.Context) error {
+func (s *Memory) Clear(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries = make([]Entry, len(s.entries))
+	s.entries = make([]entry.Entry, len(s.entries))
 	s.next, s.full = 0, false
 	return nil
 }

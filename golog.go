@@ -2,9 +2,15 @@ package golog
 
 import (
 	"context"
+	"database/sql/driver"
+	"log/slog"
 	"net/http"
 	"strings"
-	"time"
+
+	"github.com/kuhcokrow/golog/internal/api"
+	"github.com/kuhcokrow/golog/internal/capture"
+	"github.com/kuhcokrow/golog/internal/entry"
+	"github.com/kuhcokrow/golog/internal/watcher"
 )
 
 type Config struct {
@@ -31,15 +37,37 @@ func New(cfg Config) *Golog {
 	return &Golog{cfg: cfg}
 }
 
+// Middleware records every request, except those to the dashboard itself.
+func (g *Golog) Middleware(next http.Handler) http.Handler {
+	return capture.Middleware(g.cfg.Path, g.save, next)
+}
+
+// Handler serves the dashboard and its API. Mount it at Config.Path, e.g.
+// mux.Handle("/golog/", g.Handler()).
+func (g *Golog) Handler() http.Handler {
+	return api.Handler(g.cfg.Path, g.cfg.Store, g.cfg.Authorize)
+}
+
+// WrapDriver returns a connector that records every query. Use it with
+// sql.OpenDB. Queries are linked to a request only when run with a context,
+// e.g. db.QueryContext(r.Context(), ...).
+func (g *Golog) WrapDriver(d driver.Driver, dsn string) driver.Connector {
+	return watcher.WrapDriver(g.save, d, dsn)
+}
+
+// SlogHandler records every log entry and then passes it to next.
+func (g *Golog) SlogHandler(next slog.Handler) slog.Handler {
+	return watcher.NewSlogHandler(g.save, next)
+}
+
 // Record saves an entry linked to the request ID found in ctx, if any.
 func (g *Golog) Record(ctx context.Context, t EntryType, content any) {
-	g.save(Entry{
-		ID:        newID(),
-		Type:      t,
-		RequestID: RequestIDFrom(ctx),
-		CreatedAt: time.Now(),
-		Content:   content,
-	})
+	g.save(entry.New(ctx, t, content))
+}
+
+// RecordCache logs a cache operation. Value may be nil, e.g. for a miss or delete.
+func (g *Golog) RecordCache(ctx context.Context, action CacheAction, key string, value any) {
+	g.Record(ctx, TypeCache, CacheContent{Action: action, Key: key, Value: value})
 }
 
 // Errors are dropped on purpose: logging them could feed back into golog itself.

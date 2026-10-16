@@ -1,18 +1,19 @@
-package golog
+package watcher
 
 import (
 	"context"
 	"log/slog"
 	"maps"
+
+	"github.com/kuhcokrow/golog/internal/entry"
 )
 
-// SlogHandler records every log entry and then passes it to next.
-func (g *Golog) SlogHandler(next slog.Handler) slog.Handler {
-	return &slogHandler{g: g, next: next, attrs: map[string]any{}}
+func NewSlogHandler(save func(entry.Entry), next slog.Handler) slog.Handler {
+	return &slogHandler{save: save, next: next, attrs: map[string]any{}}
 }
 
 type slogHandler struct {
-	g      *Golog
+	save   func(entry.Entry)
 	next   slog.Handler
 	attrs  map[string]any
 	prefix string
@@ -28,11 +29,11 @@ func (h *slogHandler) Handle(ctx context.Context, r slog.Record) error {
 		addAttr(attrs, h.prefix, a)
 		return true
 	})
-	h.g.Record(ctx, TypeLog, LogContent{
+	h.save(entry.New(ctx, entry.TypeLog, entry.LogContent{
 		Level:   r.Level.String(),
 		Message: r.Message,
 		Attrs:   attrs,
-	})
+	}))
 	return h.next.Handle(ctx, r)
 }
 
@@ -41,14 +42,14 @@ func (h *slogHandler) WithAttrs(as []slog.Attr) slog.Handler {
 	for _, a := range as {
 		addAttr(attrs, h.prefix, a)
 	}
-	return &slogHandler{g: h.g, next: h.next.WithAttrs(as), attrs: attrs, prefix: h.prefix}
+	return &slogHandler{save: h.save, next: h.next.WithAttrs(as), attrs: attrs, prefix: h.prefix}
 }
 
 func (h *slogHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &slogHandler{g: h.g, next: h.next.WithGroup(name), attrs: h.attrs, prefix: h.prefix + name + "."}
+	return &slogHandler{save: h.save, next: h.next.WithGroup(name), attrs: h.attrs, prefix: h.prefix + name + "."}
 }
 
 func addAttr(m map[string]any, prefix string, a slog.Attr) {

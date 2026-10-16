@@ -1,6 +1,7 @@
-package golog
+package entry
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -43,7 +44,18 @@ type ExceptionContent struct {
 	Stack   string `json:"stack"`
 }
 
-func newID() string {
+// New builds an entry linked to the request ID found in ctx, if any.
+func New(ctx context.Context, t EntryType, content any) Entry {
+	return Entry{
+		ID:        NewID(),
+		Type:      t,
+		RequestID: RequestIDFrom(ctx),
+		CreatedAt: time.Now(),
+		Content:   content,
+	}
+}
+
+func NewID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)

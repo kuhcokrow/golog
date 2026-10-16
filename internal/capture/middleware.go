@@ -1,4 +1,4 @@
-package golog
+package capture
 
 import (
 	"bytes"
@@ -9,22 +9,26 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/kuhcokrow/golog/internal/entry"
 )
 
 const maxBodySize = 64 << 10
 
 var sensitiveHeaders = []string{"Authorization", "Cookie", "Set-Cookie", "Proxy-Authorization"}
 
-func (g *Golog) Middleware(next http.Handler) http.Handler {
+// Middleware records every request outside of path, which is where the
+// dashboard lives.
+func Middleware(path string, save func(entry.Entry), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == g.cfg.Path || strings.HasPrefix(r.URL.Path, g.cfg.Path+"/") {
+		if r.URL.Path == path || strings.HasPrefix(r.URL.Path, path+"/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		start := time.Now()
-		id := newID()
-		ctx := WithRequestID(r.Context(), id)
+		id := entry.NewID()
+		ctx := entry.WithRequestID(r.Context(), id)
 		r = r.WithContext(ctx)
 
 		var reqBody []byte
@@ -41,21 +45,21 @@ func (g *Golog) Middleware(next http.Handler) http.Handler {
 		defer func() {
 			p := recover()
 			if p != nil && p != http.ErrAbortHandler {
-				g.Record(ctx, TypeException, ExceptionContent{
+				save(entry.New(ctx, entry.TypeException, entry.ExceptionContent{
 					Message: fmt.Sprint(p),
 					Stack:   string(debug.Stack()),
-				})
+				}))
 				if !rec.wroteHeader {
 					rec.status = http.StatusInternalServerError
 				}
 			}
 
-			g.save(Entry{
+			save(entry.Entry{
 				ID:        id,
-				Type:      TypeRequest,
+				Type:      entry.TypeRequest,
 				RequestID: id,
 				CreatedAt: start,
-				Content: RequestContent{
+				Content: entry.RequestContent{
 					Method:          r.Method,
 					Path:            r.URL.Path,
 					Query:           r.URL.RawQuery,

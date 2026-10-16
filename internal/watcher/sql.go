@@ -1,23 +1,22 @@
-package golog
+package watcher
 
 import (
 	"context"
 	"database/sql/driver"
 	"errors"
 	"time"
+
+	"github.com/kuhcokrow/golog/internal/entry"
 )
 
-// WrapDriver returns a connector that records every query. Use it with
-// sql.OpenDB. Queries are linked to a request only when run with a context,
-// e.g. db.QueryContext(r.Context(), ...).
-func (g *Golog) WrapDriver(d driver.Driver, dsn string) driver.Connector {
+func WrapDriver(save func(entry.Entry), d driver.Driver, dsn string) driver.Connector {
 	var c driver.Connector = dsnConnector{d: d, dsn: dsn}
 	if dc, ok := d.(driver.DriverContext); ok {
 		if oc, err := dc.OpenConnector(dsn); err == nil {
 			c = oc
 		}
 	}
-	return &connector{g: g, c: c, d: d}
+	return &connector{save: save, c: c, d: d}
 }
 
 type dsnConnector struct {
@@ -29,9 +28,9 @@ func (c dsnConnector) Connect(context.Context) (driver.Conn, error) { return c.d
 func (c dsnConnector) Driver() driver.Driver                        { return c.d }
 
 type connector struct {
-	g *Golog
-	c driver.Connector
-	d driver.Driver
+	save func(entry.Entry)
+	c    driver.Connector
+	d    driver.Driver
 }
 
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -39,12 +38,12 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &wrappedConn{g: c.g, Conn: conn}, nil
+	return &wrappedConn{save: c.save, Conn: conn}, nil
 }
 
 func (c *connector) Driver() driver.Driver { return c.d }
 
-func (g *Golog) recordQuery(ctx context.Context, query string, args []driver.NamedValue, start time.Time, err error) {
+func recordQuery(save func(entry.Entry), ctx context.Context, query string, args []driver.NamedValue, start time.Time, err error) {
 	bindings := make([]any, len(args))
 	for i, a := range args {
 		if b, ok := a.Value.([]byte); ok {
@@ -53,7 +52,7 @@ func (g *Golog) recordQuery(ctx context.Context, query string, args []driver.Nam
 			bindings[i] = a.Value
 		}
 	}
-	c := QueryContent{
+	c := entry.QueryContent{
 		SQL:        query,
 		Bindings:   bindings,
 		DurationMs: float64(time.Since(start).Microseconds()) / 1000,
@@ -61,12 +60,12 @@ func (g *Golog) recordQuery(ctx context.Context, query string, args []driver.Nam
 	if err != nil {
 		c.Error = err.Error()
 	}
-	g.Record(ctx, TypeQuery, c)
+	save(entry.New(ctx, entry.TypeQuery, c))
 }
 
 type wrappedConn struct {
 	driver.Conn
-	g *Golog
+	save func(entry.Entry)
 }
 
 func (c *wrappedConn) Prepare(query string) (driver.Stmt, error) {
@@ -84,7 +83,7 @@ func (c *wrappedConn) PrepareContext(ctx context.Context, query string) (driver.
 	if err != nil {
 		return nil, err
 	}
-	return &wrappedStmt{Stmt: stmt, g: c.g, query: query}, nil
+	return &wrappedStmt{Stmt: stmt, save: c.save, query: query}, nil
 }
 
 func (c *wrappedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
@@ -102,7 +101,7 @@ func (c *wrappedConn) ExecContext(ctx context.Context, query string, args []driv
 	start := time.Now()
 	res, err := e.ExecContext(ctx, query, args)
 	if !errors.Is(err, driver.ErrSkip) {
-		c.g.recordQuery(ctx, query, args, start, err)
+		recordQuery(c.save, ctx, query, args, start, err)
 	}
 	return res, err
 }
@@ -115,7 +114,7 @@ func (c *wrappedConn) QueryContext(ctx context.Context, query string, args []dri
 	start := time.Now()
 	rows, err := q.QueryContext(ctx, query, args)
 	if !errors.Is(err, driver.ErrSkip) {
-		c.g.recordQuery(ctx, query, args, start, err)
+		recordQuery(c.save, ctx, query, args, start, err)
 	}
 	return rows, err
 }
@@ -150,7 +149,7 @@ func (c *wrappedConn) CheckNamedValue(nv *driver.NamedValue) error {
 
 type wrappedStmt struct {
 	driver.Stmt
-	g     *Golog
+	save  func(entry.Entry)
 	query string
 }
 
@@ -163,7 +162,7 @@ func (s *wrappedStmt) ExecContext(ctx context.Context, args []driver.NamedValue)
 	} else {
 		res, err = s.Stmt.Exec(toValues(args))
 	}
-	s.g.recordQuery(ctx, s.query, args, start, err)
+	recordQuery(s.save, ctx, s.query, args, start, err)
 	return res, err
 }
 
@@ -176,7 +175,7 @@ func (s *wrappedStmt) QueryContext(ctx context.Context, args []driver.NamedValue
 	} else {
 		rows, err = s.Stmt.Query(toValues(args))
 	}
-	s.g.recordQuery(ctx, s.query, args, start, err)
+	recordQuery(s.save, ctx, s.query, args, start, err)
 	return rows, err
 }
 
