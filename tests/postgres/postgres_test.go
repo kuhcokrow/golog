@@ -29,7 +29,7 @@ func openDB(t *testing.T) (*sql.DB, string) {
 	}
 	table := fmt.Sprintf("golog_test_%d", time.Now().UnixNano())
 	t.Cleanup(func() {
-		db.Exec("DROP TABLE IF EXISTS " + table)
+		db.Exec("DROP TABLE IF EXISTS " + table + ", " + table + "_settings")
 		db.Close()
 	})
 	return db, table
@@ -159,6 +159,45 @@ func TestStoreRetentionAndClear(t *testing.T) {
 	}
 	if got := ids(t, s, golog.Filter{}); len(got) != 0 {
 		t.Fatalf("expected empty table after Clear, got %v", got)
+	}
+}
+
+func TestStoreSetRetention(t *testing.T) {
+	db, table := openDB(t)
+	ctx := context.Background()
+	s := newStore(t, db, postgres.Options{Table: table, Retention: 24 * time.Hour})
+	s.Save(ctx, golog.Entry{ID: "old", Type: golog.TypeLog, CreatedAt: time.Now().Add(-3 * time.Hour), Content: golog.LogContent{}})
+	s.Save(ctx, golog.Entry{ID: "new", Type: golog.TypeLog, CreatedAt: time.Now(), Content: golog.LogContent{}})
+	s.Close()
+
+	if d, _ := s.Retention(ctx); d != 24*time.Hour {
+		t.Fatalf("initial retention should come from Options, got %v", d)
+	}
+	if err := s.SetRetention(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(t, s, golog.Filter{}); !equal(got, []string{"new"}) {
+		t.Fatalf("SetRetention should prune right away, got %v", got)
+	}
+
+	s = newStore(t, db, postgres.Options{Table: table, Retention: 7 * 24 * time.Hour})
+	if d, _ := s.Retention(ctx); d != time.Hour {
+		t.Fatalf("saved retention should win over Options after restart, got %v", d)
+	}
+
+	if err := s.SetRetention(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.Save(ctx, golog.Entry{ID: "ancient", Type: golog.TypeLog, CreatedAt: time.Now().Add(-365 * 24 * time.Hour), Content: golog.LogContent{}})
+	s.Close()
+	s = newStore(t, db, postgres.Options{Table: table})
+	s.Close()
+	if got := ids(t, s, golog.Filter{}); !equal(got, []string{"new", "ancient"}) {
+		t.Fatalf("retention 0 should disable pruning, got %v", got)
+	}
+
+	if err := s.SetRetention(ctx, -time.Hour); err == nil {
+		t.Fatal("negative retention should be rejected")
 	}
 }
 

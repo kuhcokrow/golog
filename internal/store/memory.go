@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -50,11 +51,22 @@ type Store interface {
 	Clear(ctx context.Context) error
 }
 
+// RetentionStore is a Store whose retention can be changed at runtime, e.g.
+// from the dashboard. A retention of 0 keeps entries without a time limit.
+type RetentionStore interface {
+	Store
+	Retention(ctx context.Context) (time.Duration, error)
+	SetRetention(ctx context.Context, d time.Duration) error
+}
+
+// Memory keeps the latest entries up to its capacity. Entries older than its
+// retention are hidden and eventually overwritten.
 type Memory struct {
-	mu      sync.RWMutex
-	entries []entry.Entry
-	next    int
-	full    bool
+	mu        sync.RWMutex
+	entries   []entry.Entry
+	next      int
+	full      bool
+	retention time.Duration
 }
 
 func NewMemory(max int) *Memory {
@@ -77,9 +89,16 @@ func (s *Memory) each(fn func(entry.Entry) bool) {
 	if s.full {
 		n = len(s.entries)
 	}
+	var cutoff time.Time
+	if s.retention > 0 {
+		cutoff = time.Now().Add(-s.retention)
+	}
 	for i := 1; i <= n; i++ {
-		idx := (s.next - i + len(s.entries)) % len(s.entries)
-		if !fn(s.entries[idx]) {
+		e := s.entries[(s.next-i+len(s.entries))%len(s.entries)]
+		if !cutoff.IsZero() && e.CreatedAt.Before(cutoff) {
+			continue
+		}
+		if !fn(e) {
 			return
 		}
 	}
@@ -124,5 +143,21 @@ func (s *Memory) Clear(_ context.Context) error {
 	defer s.mu.Unlock()
 	s.entries = make([]entry.Entry, len(s.entries))
 	s.next, s.full = 0, false
+	return nil
+}
+
+func (s *Memory) Retention(context.Context) (time.Duration, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.retention, nil
+}
+
+func (s *Memory) SetRetention(_ context.Context, d time.Duration) error {
+	if d < 0 {
+		return errors.New("retention must not be negative")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retention = d
 	return nil
 }

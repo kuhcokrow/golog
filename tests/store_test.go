@@ -78,6 +78,31 @@ func TestMemoryStoreSearchAndTimeRange(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreRetention(t *testing.T) {
+	s := golog.NewMemoryStore(10)
+	ctx := context.Background()
+	s.Save(ctx, golog.Entry{ID: "old", CreatedAt: time.Now().Add(-2 * time.Hour)})
+	s.Save(ctx, golog.Entry{ID: "new", CreatedAt: time.Now()})
+
+	if d, _ := s.Retention(ctx); d != 0 {
+		t.Fatalf("default retention should be 0, got %v", d)
+	}
+	s.SetRetention(ctx, time.Hour)
+	if got := ids(t, s, golog.Filter{}); !equal(got, []string{"new"}) {
+		t.Fatalf("expired entry should be hidden, got %v", got)
+	}
+	if _, ok, _ := s.Get(ctx, "old"); ok {
+		t.Fatal("expired entry should not be found")
+	}
+	s.SetRetention(ctx, 0)
+	if got := ids(t, s, golog.Filter{}); !equal(got, []string{"new", "old"}) {
+		t.Fatalf("retention 0 should show every entry, got %v", got)
+	}
+	if err := s.SetRetention(ctx, -time.Hour); err == nil {
+		t.Fatal("negative retention should be rejected")
+	}
+}
+
 func TestMemoryStoreClear(t *testing.T) {
 	s := golog.NewMemoryStore(3)
 	s.Save(context.Background(), golog.Entry{ID: "a"})

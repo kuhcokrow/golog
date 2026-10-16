@@ -85,18 +85,21 @@ nav {
   flex: 1;
 }
 
-nav a {
+nav a,
+.nav-link {
   padding: 8px;
   border-radius: 6px;
   color: var(--text);
   text-decoration: none;
 }
 
-nav a:hover {
+nav a:hover,
+.nav-link:hover {
   background: var(--hover);
 }
 
-nav a.active {
+nav a.active,
+.nav-link.active {
   background: var(--hover);
   color: var(--accent);
   font-weight: 600;
@@ -338,6 +341,42 @@ input:focus {
 .search {
   flex: 1;
   min-width: 200px;
+}
+
+select {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.field .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field .row select {
+  flex: 1;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.success {
+  color: var(--green);
 }
 
 .pager {

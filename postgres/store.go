@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kuhcokrow/golog/internal/entry"
@@ -28,7 +30,8 @@ var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 type Options struct {
 	// Table defaults to "golog_entries". It is created if it does not exist.
 	Table string
-	// Retention is how long entries are kept. Defaults to 24 hours.
+	// Retention is how long entries are kept. Defaults to 24 hours. Once
+	// retention is changed from the dashboard, the saved value is used instead.
 	Retention time.Duration
 }
 
@@ -38,7 +41,7 @@ type Options struct {
 type Store struct {
 	db        *sql.DB
 	table     string
-	retention time.Duration
+	retention atomic.Int64
 	queue     chan entry.Entry
 	done      chan struct{}
 	closeOnce sync.Once
@@ -60,13 +63,16 @@ func New(db *sql.DB, opts Options) (*Store, error) {
 	}
 
 	s := &Store{
-		db:        db,
-		table:     opts.Table,
-		retention: opts.Retention,
-		queue:     make(chan entry.Entry, queueSize),
-		done:      make(chan struct{}),
+		db:    db,
+		table: opts.Table,
+		queue: make(chan entry.Entry, queueSize),
+		done:  make(chan struct{}),
 	}
+	s.retention.Store(int64(opts.Retention))
 	if err := s.migrate(context.Background()); err != nil {
+		return nil, err
+	}
+	if err := s.loadRetention(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -87,12 +93,54 @@ func (s *Store) migrate(ctx context.Context) error {
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %[1]s_created_at_idx ON %[1]s (created_at DESC)`, s.table),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %[1]s_type_created_at_idx ON %[1]s (type, created_at DESC)`, s.table),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %[1]s_request_id_idx ON %[1]s (request_id)`, s.table),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s_settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`, s.table),
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("postgres: migrate: %w", err)
 		}
 	}
+	return nil
+}
+
+func (s *Store) loadRetention(ctx context.Context) error {
+	var v string
+	err := s.db.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT value FROM %s_settings WHERE key = 'retention'", s.table)).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: load settings: %w", err)
+	}
+	d, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return fmt.Errorf("postgres: invalid saved retention %q: %w", v, err)
+	}
+	s.retention.Store(d)
+	return nil
+}
+
+func (s *Store) Retention(context.Context) (time.Duration, error) {
+	return time.Duration(s.retention.Load()), nil
+}
+
+// SetRetention saves d, so it survives restarts, and deletes entries older
+// than d right away. A retention of 0 disables pruning.
+func (s *Store) SetRetention(ctx context.Context, d time.Duration) error {
+	if d < 0 {
+		return errors.New("postgres: retention must not be negative")
+	}
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s_settings (key, value) VALUES ('retention', $1)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, s.table), strconv.FormatInt(int64(d), 10))
+	if err != nil {
+		return err
+	}
+	s.retention.Store(int64(d))
+	s.prune()
 	return nil
 }
 
@@ -181,7 +229,11 @@ func (s *Store) insert(batch []entry.Entry) {
 }
 
 func (s *Store) prune() {
-	s.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE created_at < $1", s.table), time.Now().Add(-s.retention))
+	d := time.Duration(s.retention.Load())
+	if d <= 0 {
+		return
+	}
+	s.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE created_at < $1", s.table), time.Now().Add(-d))
 }
 
 func (s *Store) List(ctx context.Context, f store.Filter) ([]entry.Entry, error) {

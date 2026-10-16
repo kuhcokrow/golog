@@ -2,10 +2,12 @@ import { clearEntries } from './api'
 import { useHashPath } from './hooks'
 import { DetailPage } from './pages/DetailPage'
 import { ListPage } from './pages/ListPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { sections } from './sections'
 
 export function App() {
   const [, name, id] = useHashPath().split('/')
+  const isSettings = name === 'settings'
   const section = sections.find((s) => s.path === name) ?? sections[0]
 
   const onClear = async () => {
@@ -21,16 +23,27 @@ export function App() {
         <h1>Golog</h1>
         <nav>
           {sections.map((s) => (
-            <a key={s.path} href={`#/${s.path}`} className={s === section ? 'active' : ''}>
+            <a key={s.path} href={`#/${s.path}`} className={!isSettings && s === section ? 'active' : ''}>
               {s.title}
             </a>
           ))}
         </nav>
+        <a href="#/settings" className={`nav-link ${isSettings ? 'active' : ''}`}>
+          Settings
+        </a>
         <button className="danger" onClick={onClear}>
           Clear entries
         </button>
       </aside>
-      <main>{id ? <DetailPage key={id} id={id} /> : <ListPage key={section.path} section={section} />}</main>
+      <main>
+        {isSettings ? (
+          <SettingsPage />
+        ) : id ? (
+          <DetailPage key={id} id={id} />
+        ) : (
+          <ListPage key={section.path} section={section} />
+        )}
+      </main>
     </div>
   )
 }

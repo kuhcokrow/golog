@@ -17,9 +17,10 @@ type (
 	CacheContent     = entry.CacheContent
 	CacheAction      = entry.CacheAction
 
-	Store       = store.Store
-	Filter      = store.Filter
-	MemoryStore = store.Memory
+	Store          = store.Store
+	RetentionStore = store.RetentionStore
+	Filter         = store.Filter
+	MemoryStore    = store.Memory
 )
 
 const (

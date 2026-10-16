@@ -22,6 +22,8 @@ func Handler(path string, s store.Store, authorize func(*http.Request) bool) htt
 	mux.HandleFunc("GET /api/entries", g.listEntries)
 	mux.HandleFunc("GET /api/entries/{id}", g.getEntry)
 	mux.HandleFunc("DELETE /api/entries", g.clearEntries)
+	mux.HandleFunc("GET /api/settings", g.getSettings)
+	mux.HandleFunc("PUT /api/settings", g.updateSettings)
 	mux.Handle("GET /", http.FileServerFS(dashboard.FS()))
 
 	h := http.StripPrefix(path, mux)
@@ -87,6 +89,49 @@ func (g *handler) clearEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// settings.Retention is in seconds; nil means the store does not support it.
+type settings struct {
+	Retention *int64 `json:"retention"`
+}
+
+func (g *handler) getSettings(w http.ResponseWriter, r *http.Request) {
+	rs, ok := g.store.(store.RetentionStore)
+	if !ok {
+		writeJSON(w, settings{})
+		return
+	}
+	d, err := rs.Retention(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	secs := int64(d / time.Second)
+	writeJSON(w, settings{Retention: &secs})
+}
+
+func (g *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
+	rs, ok := g.store.(store.RetentionStore)
+	if !ok {
+		http.Error(w, "store does not support retention", http.StatusBadRequest)
+		return
+	}
+	var body settings
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Retention == nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	d := time.Duration(*body.Retention) * time.Second
+	if d != 0 && d < time.Minute {
+		http.Error(w, "retention must be 0 or at least 60 seconds", http.StatusBadRequest)
+		return
+	}
+	if err := rs.SetRetention(r.Context(), d); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	g.getSettings(w, r)
 }
 
 func parseTime(s string) (time.Time, error) {
