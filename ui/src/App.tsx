@@ -18,7 +18,7 @@ export function App() {
   return (
     <div className="layout">
       <aside>
-        <h1>golog</h1>
+        <h1>Golog</h1>
         <nav>
           {sections.map((s) => (
             <a key={s.path} href={`#/${s.path}`} className={s === section ? 'active' : ''}>
