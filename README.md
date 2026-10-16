@@ -241,18 +241,48 @@ Also implement `Retention(ctx)` and `SetRetention(ctx, d)` (see `golog.Retention
 
 ```go
 g := golog.New(golog.Config{
-	Path:  "/debug",           // where the dashboard lives, defaults to "/golog"
+	Path:  "/debug", // where the dashboard lives, defaults to "/golog"
 	Store: golog.NewMemoryStore(1000),
+})
+```
+
+> [!WARNING]
+> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without protection, anyone who can reach the dashboard can read them, clear them, and change the retention. Always set `BasicAuth` or `Authorize`, or do not mount the dashboard, outside of local development.
+
+### Basic auth
+
+```go
+g := golog.New(golog.Config{
+	BasicAuth: &golog.BasicAuth{
+		Username: "admin",
+		Password: os.Getenv("GOLOG_PASSWORD"),
+	},
+})
+```
+
+The browser asks for the username and password when the dashboard is opened. `New` panics if the password is empty, so a missing environment variable never leaves the dashboard open.
+
+Keep in mind that basic auth:
+
+- sends credentials only base64 encoded, so use HTTPS outside of localhost;
+- has no logout, the browser remembers the credentials until it is closed;
+- supports a single username and password.
+
+### Custom authorization
+
+For anything else (several users, SSO, sessions, IP allow lists), use `Authorize`. Requests it rejects get a 403.
+
+```go
+g := golog.New(golog.Config{
 	Authorize: func(r *http.Request) bool {
 		return r.Header.Get("X-Debug-Token") == os.Getenv("DEBUG_TOKEN")
 	},
 })
 ```
 
-> [!WARNING]
-> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without `Authorize`, anyone who can reach the dashboard can read them, clear them, and change the retention. Always set `Authorize`, or do not mount the dashboard, outside of local development.
+When both `BasicAuth` and `Authorize` are set, a request must pass both.
 
-What golog does to limit exposure:
+### Built-in protections
 
 - `Authorization`, `Cookie`, `Set-Cookie`, and `Proxy-Authorization` headers are masked as `********`.
 - Request and response bodies are truncated to 64 KB.
