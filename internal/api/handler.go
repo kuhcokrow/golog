@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/kuhcokrow/golog/internal/dashboard"
 	"github.com/kuhcokrow/golog/internal/entry"
@@ -40,10 +41,23 @@ func (g *handler) listEntries(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	from, err := parseTime(q.Get("from"))
+	if err != nil {
+		http.Error(w, "invalid from: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	to, err := parseTime(q.Get("to"))
+	if err != nil {
+		http.Error(w, "invalid to: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	entries, err := g.store.List(r.Context(), store.Filter{
 		Type:      entry.EntryType(q.Get("type")),
 		RequestID: q.Get("requestId"),
+		Search:    q.Get("search"),
+		From:      from,
+		To:        to,
 		Limit:     limit,
 		Offset:    max(offset, 0),
 	})
@@ -73,6 +87,13 @@ func (g *handler) clearEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, s)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -304,11 +304,46 @@ tbody tr:hover {
   border-bottom-color: var(--accent);
 }
 
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  color-scheme: light dark;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.search {
+  flex: 1;
+  min-width: 200px;
+}
+
 .pager {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
-  margin-top: 12px;
+  margin-left: auto;
 }
 
 @media (max-width: 720px) {
@@ -334,5 +369,9 @@ tbody tr:hover {
   .kv div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .search {
+    flex-basis: 100%;
   }
 }

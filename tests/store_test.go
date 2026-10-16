@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kuhcokrow/golog"
 )
@@ -40,6 +41,33 @@ func TestMemoryStoreFilter(t *testing.T) {
 		{"type and request", golog.Filter{Type: golog.TypeQuery, RequestID: "r1"}, []string{"4", "2"}},
 		{"limit", golog.Filter{Limit: 2}, []string{"4", "3"}},
 		{"offset", golog.Filter{Limit: 2, Offset: 2}, []string{"2", "1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ids(t, s, tt.filter); !equal(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMemoryStoreSearchAndTimeRange(t *testing.T) {
+	s := golog.NewMemoryStore(10)
+	base := time.Date(2026, 10, 16, 13, 0, 0, 0, time.UTC)
+	s.Save(context.Background(), golog.Entry{ID: "1", CreatedAt: base, Content: golog.RequestContent{Path: "/users"}})
+	s.Save(context.Background(), golog.Entry{ID: "2", CreatedAt: base.Add(30 * time.Minute), Content: golog.QueryContent{SQL: "SELECT * FROM Users"}})
+	s.Save(context.Background(), golog.Entry{ID: "3", CreatedAt: base.Add(time.Hour), Content: golog.LogContent{Message: "order created"}})
+
+	tests := []struct {
+		name   string
+		filter golog.Filter
+		want   []string
+	}{
+		{"search is case-insensitive", golog.Filter{Search: "USERS"}, []string{"2", "1"}},
+		{"search no match", golog.Filter{Search: "invoice"}, []string{}},
+		{"from inclusive", golog.Filter{From: base.Add(30 * time.Minute)}, []string{"3", "2"}},
+		{"to inclusive", golog.Filter{To: base.Add(30 * time.Minute)}, []string{"2", "1"}},
+		{"range and search", golog.Filter{From: base.Add(time.Minute), Search: "users"}, []string{"2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

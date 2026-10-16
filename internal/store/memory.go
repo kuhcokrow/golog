@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/kuhcokrow/golog/internal/entry"
 )
@@ -10,8 +13,33 @@ import (
 type Filter struct {
 	Type      entry.EntryType
 	RequestID string
-	Limit     int
-	Offset    int
+	// Search matches entry content case-insensitively.
+	Search string
+	// From and To bound CreatedAt inclusively. Zero values are ignored.
+	From   time.Time
+	To     time.Time
+	Limit  int
+	Offset int
+}
+
+func (f Filter) matches(e entry.Entry) bool {
+	if f.Type != "" && e.Type != f.Type {
+		return false
+	}
+	if f.RequestID != "" && e.RequestID != f.RequestID {
+		return false
+	}
+	if !f.From.IsZero() && e.CreatedAt.Before(f.From) {
+		return false
+	}
+	if !f.To.IsZero() && e.CreatedAt.After(f.To) {
+		return false
+	}
+	if f.Search != "" {
+		b, _ := json.Marshal(e.Content)
+		return strings.Contains(strings.ToLower(string(b)), strings.ToLower(f.Search))
+	}
+	return true
 }
 
 // Store results from List must be ordered newest first.
@@ -63,7 +91,7 @@ func (s *Memory) List(_ context.Context, f Filter) ([]entry.Entry, error) {
 	result := []entry.Entry{}
 	skipped := 0
 	s.each(func(e entry.Entry) bool {
-		if (f.Type != "" && e.Type != f.Type) || (f.RequestID != "" && e.RequestID != f.RequestID) {
+		if !f.matches(e) {
 			return true
 		}
 		if skipped < f.Offset {

@@ -3,6 +3,9 @@ import type { Entry, EntryType } from './types'
 export interface ListParams {
   type?: EntryType
   requestId?: string
+  search?: string
+  from?: string
+  to?: string
   limit?: number
   offset?: number
 }
