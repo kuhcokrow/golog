@@ -36,7 +36,8 @@ func (h *Hook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
 		start := time.Now()
 		err := next(ctx, cmd)
-		h.record(ctx, cmd, start)
+		// go-redis only calls cmd.SetErr after every hook has returned.
+		h.record(ctx, cmd, err, start)
 		return err
 	}
 }
@@ -46,13 +47,13 @@ func (h *Hook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Process
 		start := time.Now()
 		err := next(ctx, cmds)
 		for _, cmd := range cmds {
-			h.record(ctx, cmd, start)
+			h.record(ctx, cmd, cmd.Err(), start)
 		}
 		return err
 	}
 }
 
-func (h *Hook) record(ctx context.Context, cmd redis.Cmder, start time.Time) {
+func (h *Hook) record(ctx context.Context, cmd redis.Cmder, err error, start time.Time) {
 	args := cmd.Args()
 	name := cmd.Name()
 	if len(args) < 2 || ignored[name] {
@@ -65,7 +66,7 @@ func (h *Hook) record(ctx context.Context, cmd redis.Cmder, start time.Time) {
 	}
 	switch name {
 	case "get":
-		if errors.Is(cmd.Err(), redis.Nil) {
+		if errors.Is(err, redis.Nil) {
 			c.Action = golog.CacheMiss
 		} else {
 			c.Action = golog.CacheHit
