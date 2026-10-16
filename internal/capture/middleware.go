@@ -13,10 +13,6 @@ import (
 	"github.com/kuhcokrow/golog/internal/entry"
 )
 
-const maxBodySize = 64 << 10
-
-var sensitiveHeaders = []string{"Authorization", "Cookie", "Set-Cookie", "Proxy-Authorization"}
-
 // Middleware records every request outside of path, which is where the
 // dashboard lives.
 func Middleware(path string, save func(entry.Entry), next http.Handler) http.Handler {
@@ -54,24 +50,17 @@ func Middleware(path string, save func(entry.Entry), next http.Handler) http.Han
 				}
 			}
 
-			save(entry.Entry{
-				ID:        id,
-				Type:      entry.TypeRequest,
-				RequestID: id,
-				CreatedAt: start,
-				Content: entry.RequestContent{
-					Method:          r.Method,
-					Path:            r.URL.Path,
-					Query:           r.URL.RawQuery,
-					IP:              clientIP(r),
-					Status:          rec.status,
-					DurationMs:      float64(time.Since(start).Microseconds()) / 1000,
-					Headers:         maskHeaders(r.Header),
-					Body:            string(reqBody),
-					ResponseHeaders: maskHeaders(rec.Header()),
-					ResponseBody:    rec.body.String(),
-				},
-			})
+			save(RequestEntry(id, start, entry.RequestContent{
+				Method:          r.Method,
+				Path:            r.URL.Path,
+				Query:           r.URL.RawQuery,
+				IP:              clientIP(r),
+				Status:          rec.status,
+				Headers:         r.Header,
+				Body:            string(reqBody),
+				ResponseHeaders: rec.Header(),
+				ResponseBody:    rec.body.String(),
+			}))
 
 			if p != nil {
 				panic(p)
@@ -113,16 +102,6 @@ func (r *responseRecorder) Flush() {
 
 func (r *responseRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
-}
-
-func maskHeaders(h http.Header) http.Header {
-	c := h.Clone()
-	for _, k := range sensitiveHeaders {
-		if c.Get(k) != "" {
-			c.Set(k, "********")
-		}
-	}
-	return c
 }
 
 func clientIP(r *http.Request) string {

@@ -39,6 +39,10 @@ func NewMemoryStore(max int) *MemoryStore {
 	return store.NewMemory(max)
 }
 
+func NewRequestID() string {
+	return entry.NewID()
+}
+
 func WithRequestID(ctx context.Context, id string) context.Context {
 	return entry.WithRequestID(ctx, id)
 }

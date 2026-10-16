@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kuhcokrow/golog/internal/api"
 	"github.com/kuhcokrow/golog/internal/capture"
@@ -40,6 +41,19 @@ func New(cfg Config) *Golog {
 // Middleware records every request, except those to the dashboard itself.
 func (g *Golog) Middleware(next http.Handler) http.Handler {
 	return capture.Middleware(g.cfg.Path, g.save, next)
+}
+
+// Path is where the dashboard is mounted.
+func (g *Golog) Path() string {
+	return g.cfg.Path
+}
+
+// RecordRequest records a request handled outside of Middleware, for
+// frameworks not built on net/http such as Fiber. ctx must carry the request
+// ID (see WithRequestID). Headers are masked, bodies are truncated and the
+// duration is measured from start, the same way Middleware does.
+func (g *Golog) RecordRequest(ctx context.Context, start time.Time, c RequestContent) {
+	g.save(capture.RequestEntry(RequestIDFrom(ctx), start, c))
 }
 
 // Handler serves the dashboard and its API. Mount it at Config.Path, e.g.
