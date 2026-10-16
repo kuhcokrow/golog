@@ -179,7 +179,7 @@ Any framework built on `net/http` (chi, gorilla/mux, and others) works with `g.M
 
 ### In memory (default)
 
-Keeps the latest 1000 entries. When it is full, the oldest entries are overwritten. Entries are lost when the app restarts.
+Keeps the latest 1000 entries. When it is full, the oldest entries are overwritten. Entries are lost when the app restarts. There is no time limit unless you set one from the dashboard (see [Retention](#retention)).
 
 ```go
 g := golog.New(golog.Config{Store: golog.NewMemoryStore(5000)})
@@ -194,7 +194,7 @@ db, _ := sql.Open("pgx", dsn)
 
 store, err := postgres.New(db, postgres.Options{
 	Table:     "golog_entries", // default
-	Retention: 24 * time.Hour,  // default
+	Retention: 24 * time.Hour,  // initial value, default
 })
 if err != nil {
 	log.Fatal(err)
@@ -206,10 +206,21 @@ g := golog.New(golog.Config{Store: store})
 
 - The table and its indexes are created automatically if they do not exist.
 - Entries are written asynchronously in batches (every 100 entries or 500 ms), so requests never wait for the database. If the write queue is full, new entries are dropped instead of slowing your app down.
-- Entries older than `Retention` are deleted on start and then every minute.
+- Entries older than the retention are deleted on start and then every minute.
+- Retention changed from the dashboard is saved in a `<table>_settings` table and wins over `Options.Retention`, also after a restart.
 - Call `Close` before your app exits to flush pending entries. It does not close your `*sql.DB`.
 - Pass a `*sql.DB` that is **not** wrapped with `g.WrapDriver`, otherwise golog records its own queries.
 - The package only uses `database/sql`, so use whichever PostgreSQL driver you like.
+
+### Retention
+
+Open **Settings** in the dashboard to choose how long entries are kept: no limit, 1 hour, 6 hours, 24 hours, 3 days, 7 days, or 30 days. The change applies immediately and older entries are removed right away.
+
+Both built-in stores support this. The PostgreSQL store keeps the value across restarts; the in-memory store does not. You can also change it from code:
+
+```go
+store.SetRetention(ctx, 7*24*time.Hour) // 0 means no time limit
+```
 
 ### Your own store
 
@@ -224,6 +235,8 @@ type Store interface {
 }
 ```
 
+Also implement `Retention(ctx)` and `SetRetention(ctx, d)` (see `golog.RetentionStore`) to make retention configurable from the dashboard. Otherwise the setting is hidden.
+
 ## Configuration and security
 
 ```go
@@ -237,7 +250,7 @@ g := golog.New(golog.Config{
 ```
 
 > [!WARNING]
-> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without `Authorize`, anyone who can reach the dashboard can read them. Always set `Authorize`, or do not mount the dashboard, outside of local development.
+> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without `Authorize`, anyone who can reach the dashboard can read them, clear them, and change the retention. Always set `Authorize`, or do not mount the dashboard, outside of local development.
 
 What golog does to limit exposure:
 
