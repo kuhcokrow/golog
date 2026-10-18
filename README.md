@@ -247,30 +247,37 @@ g := golog.New(golog.Config{
 ```
 
 > [!WARNING]
-> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without protection, anyone who can reach the dashboard can read them, clear them, and change the retention. Always set `BasicAuth` or `Authorize`, or do not mount the dashboard, outside of local development.
+> Golog records request bodies, response bodies, SQL bindings, and log attributes, which may contain personal data. Without protection, anyone who can reach the dashboard can read them, clear them, and change the retention. Always set `Auth` or `Authorize`, or do not mount the dashboard, outside of local development.
 
-### Basic auth
+### Login
 
 ```go
-g := golog.New(golog.Config{
-	BasicAuth: &golog.BasicAuth{
-		Username: "admin",
-		Password: os.Getenv("GOLOG_PASSWORD"),
-	},
-})
+g := golog.New(golog.Config{Auth: true})
 ```
 
-The browser asks for the username and password when the dashboard is opened. `New` panics if the password is empty, so a missing environment variable never leaves the dashboard open.
+The first time the dashboard is opened, it asks to create an account (username, password, and password confirmation). After that it shows a login page. Only one account can exist, and the sidebar has a **Log out** button.
 
-Keep in mind that basic auth:
+> [!IMPORTANT]
+> Until the account is created, **anyone** who opens the dashboard can create it. Create it right after enabling `Auth`, or combine `Auth` with `Authorize` (for example an IP allow list) so strangers cannot reach the page first.
 
-- sends credentials only base64 encoded, so use HTTPS outside of localhost;
-- has no logout, the browser remembers the credentials until it is closed;
-- supports a single username and password.
+How it works:
+
+- Passwords are hashed with PBKDF2-SHA256 (600,000 iterations, random salt). The plain password is never stored.
+- The account is kept by the store. With the PostgreSQL store it lives in the `<table>_settings` table and survives restarts. With the in-memory store it is lost on restart, so you create it again. Custom stores can implement `golog.UserStore`; otherwise the account is kept in memory.
+- Sessions use an `HttpOnly`, `SameSite=Strict` cookie, marked `Secure` over HTTPS, valid for 7 days. Sessions are kept in memory, so everyone logs in again after a restart.
+- The dashboard's static files stay public so the login page can load. Every `/api` route except the login endpoints needs a session.
+
+Forgot the password? Delete the account and create a new one:
+
+```sql
+DELETE FROM golog_entries_settings WHERE key = 'user';
+```
+
+With the in-memory store, restart the app.
 
 ### Custom authorization
 
-For anything else (several users, SSO, sessions, IP allow lists), use `Authorize`. Requests it rejects get a 403.
+For anything else (several users, SSO, IP allow lists), use `Authorize`. Requests it rejects get a 403. It also guards the login page.
 
 ```go
 g := golog.New(golog.Config{
@@ -280,7 +287,7 @@ g := golog.New(golog.Config{
 })
 ```
 
-When both `BasicAuth` and `Authorize` are set, a request must pass both.
+When both `Auth` and `Authorize` are set, a request must pass both.
 
 ### Built-in protections
 
@@ -327,7 +334,7 @@ export GOLOG_TEST_REDIS_ADDR=localhost:6379
 go run ./examples/basic
 ```
 
-It listens on `:8080` with the dashboard at `/golog/`, and uses a fake database driver so it runs without any setup. Try `/users/7`, `POST /users`, `/broken-query`, and `/panic`.
+It listens on `:8080` with the dashboard at `/golog/`, and uses a fake database driver so it runs without any setup. Run it with `GOLOG_AUTH=1` to try the login page. Try `/users/7`, `POST /users`, `/broken-query`, and `/panic`.
 
 ### Dashboard UI
 
