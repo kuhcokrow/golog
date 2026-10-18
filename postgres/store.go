@@ -144,6 +144,39 @@ func (s *Store) SetRetention(ctx context.Context, d time.Duration) error {
 	return nil
 }
 
+func (s *Store) User(ctx context.Context) (store.User, bool, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT value FROM %s_settings WHERE key = 'user'", s.table)).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.User{}, false, nil
+	}
+	if err != nil {
+		return store.User{}, false, err
+	}
+	var u store.User
+	if err := json.Unmarshal([]byte(v), &u); err != nil {
+		return store.User{}, false, fmt.Errorf("postgres: invalid saved user: %w", err)
+	}
+	return u, true, nil
+}
+
+// CreateUser relies on the settings primary key, so concurrent registrations
+// cannot both succeed.
+func (s *Store) CreateUser(ctx context.Context, u store.User) (bool, error) {
+	b, err := json.Marshal(u)
+	if err != nil {
+		return false, err
+	}
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s_settings (key, value) VALUES ('user', $1)
+		ON CONFLICT (key) DO NOTHING`, s.table), string(b))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // Close flushes pending entries and stops the background writer. It does not
 // close the *sql.DB.
 func (s *Store) Close() error {

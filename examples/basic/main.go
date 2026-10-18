@@ -17,7 +17,10 @@ import (
 )
 
 func main() {
-	g := golog.New(golog.Config{Path: "/golog"})
+	g := golog.New(golog.Config{
+		Path: "/golog",
+		Auth: os.Getenv("GOLOG_AUTH") == "1",
+	})
 
 	db := sql.OpenDB(g.WrapDriver(fakeDriver{}, ""))
 	logger := slog.New(g.SlogHandler(slog.NewTextHandler(os.Stdout, nil)))

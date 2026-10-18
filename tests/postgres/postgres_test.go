@@ -201,6 +201,29 @@ func TestStoreSetRetention(t *testing.T) {
 	}
 }
 
+func TestStoreUser(t *testing.T) {
+	db, table := openDB(t)
+	ctx := context.Background()
+	s := newStore(t, db, postgres.Options{Table: table})
+
+	if _, ok, err := s.User(ctx); ok || err != nil {
+		t.Fatalf("expected no user, got ok=%v err=%v", ok, err)
+	}
+	created, err := s.CreateUser(ctx, golog.User{Username: "admin", PasswordHash: "hash"})
+	if err != nil || !created {
+		t.Fatalf("CreateUser: created=%v err=%v", created, err)
+	}
+	if created, _ := s.CreateUser(ctx, golog.User{Username: "evil", PasswordHash: "x"}); created {
+		t.Fatal("a second user must not be created")
+	}
+
+	s = newStore(t, db, postgres.Options{Table: table})
+	u, ok, err := s.User(ctx)
+	if err != nil || !ok || u.Username != "admin" || u.PasswordHash != "hash" {
+		t.Fatalf("user should survive a restart, got %+v ok=%v err=%v", u, ok, err)
+	}
+}
+
 func TestNewRejectsInvalidTable(t *testing.T) {
 	if _, err := postgres.New(nil, postgres.Options{Table: "entries; DROP TABLE users"}); err == nil {
 		t.Fatal("expected error for invalid table name")

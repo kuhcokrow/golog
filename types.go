@@ -19,6 +19,8 @@ type (
 
 	Store          = store.Store
 	RetentionStore = store.RetentionStore
+	UserStore      = store.UserStore
+	User           = store.User
 	Filter         = store.Filter
 	MemoryStore    = store.Memory
 )

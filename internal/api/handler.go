@@ -1,13 +1,13 @@
 package api
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/kuhcokrow/golog/internal/auth"
 	"github.com/kuhcokrow/golog/internal/dashboard"
 	"github.com/kuhcokrow/golog/internal/entry"
 	"github.com/kuhcokrow/golog/internal/store"
@@ -15,19 +15,23 @@ import (
 
 type handler struct {
 	store store.Store
+	auth  *auth.Manager
 }
 
 type Access struct {
-	// Basic auth is enabled when Password is set.
-	Username  string
-	Password  string
+	// Auth is nil when the login page is disabled.
+	Auth      *auth.Manager
 	Authorize func(*http.Request) bool
 }
 
 // Handler serves the dashboard and its JSON API under path.
 func Handler(path string, s store.Store, access Access) http.Handler {
-	g := &handler{store: s}
+	g := &handler{store: s, auth: access.Auth}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/auth", g.authStatus)
+	mux.HandleFunc("POST /api/auth/register", g.register)
+	mux.HandleFunc("POST /api/auth/login", g.login)
+	mux.HandleFunc("POST /api/auth/logout", g.logout)
 	mux.HandleFunc("GET /api/entries", g.listEntries)
 	mux.HandleFunc("GET /api/entries/{id}", g.getEntry)
 	mux.HandleFunc("DELETE /api/entries", g.clearEntries)
@@ -36,36 +40,21 @@ func Handler(path string, s store.Store, access Access) http.Handler {
 	mux.Handle("GET /", http.FileServerFS(dashboard.FS()))
 
 	h := http.StripPrefix(path, mux)
-	user := sha256.Sum256([]byte(access.Username))
-	pass := sha256.Sum256([]byte(access.Password))
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if access.Password != "" && !checkBasicAuth(r, user, pass) {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Golog", charset="UTF-8"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
 		if access.Authorize != nil && !access.Authorize(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		// The UI's static files stay public so it can show the login page;
+		// only the data API needs a session.
+		rel := strings.TrimPrefix(r.URL.Path, path)
+		isAuthAPI := rel == "/api/auth" || strings.HasPrefix(rel, "/api/auth/")
+		if access.Auth != nil && strings.HasPrefix(rel, "/api/") && !isAuthAPI && !access.Auth.Authenticated(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-// Both values are hashed first so the comparison takes the same time whatever
-// their length, and both are always compared so a wrong username is not
-// distinguishable from a wrong password.
-func checkBasicAuth(r *http.Request, user, pass [32]byte) bool {
-	u, p, ok := r.BasicAuth()
-	if !ok {
-		return false
-	}
-	gotUser := sha256.Sum256([]byte(u))
-	gotPass := sha256.Sum256([]byte(p))
-	userOK := subtle.ConstantTimeCompare(gotUser[:], user[:])
-	passOK := subtle.ConstantTimeCompare(gotPass[:], pass[:])
-	return userOK&passOK == 1
 }
 
 func (g *handler) listEntries(w http.ResponseWriter, r *http.Request) {

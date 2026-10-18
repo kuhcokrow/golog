@@ -67,6 +67,7 @@ type Memory struct {
 	next      int
 	full      bool
 	retention time.Duration
+	memoryUsers
 }
 
 func NewMemory(max int) *Memory {
