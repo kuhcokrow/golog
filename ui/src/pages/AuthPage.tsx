@@ -3,6 +3,48 @@ import { login, register, type AuthStatus } from '../api'
 
 const minPassword = 8
 
+function EyeIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {!open && <line x1="3" y1="3" x2="21" y2="21" />}
+    </svg>
+  )
+}
+
+function PasswordInput({
+  value,
+  onChange,
+  autoComplete,
+}: {
+  value: string
+  onChange: (v: string) => void
+  autoComplete: string
+}) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div className="password-input">
+      <input
+        required
+        type={visible ? 'text' : 'password'}
+        autoComplete={autoComplete}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button
+        type="button"
+        className="icon-button"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        title={visible ? 'Hide password' : 'Show password'}
+        onClick={() => setVisible(!visible)}
+      >
+        <EyeIcon open={!visible} />
+      </button>
+    </div>
+  )
+}
+
 export function AuthPage({ mode, onDone }: { mode: 'setup' | 'login'; onDone: (s: AuthStatus) => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -39,24 +81,16 @@ export function AuthPage({ mode, onDone }: { mode: 'setup' | 'login'; onDone: (s
         </label>
         <label>
           Password
-          <input
-            required
-            type="password"
+          <PasswordInput
             autoComplete={isSetup ? 'new-password' : 'current-password'}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
           />
         </label>
         {isSetup && (
           <label>
             Confirm password
-            <input
-              required
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
+            <PasswordInput autoComplete="new-password" value={confirm} onChange={setConfirm} />
           </label>
         )}
         {error && <p className="error">{error}</p>}

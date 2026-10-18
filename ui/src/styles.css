@@ -181,6 +181,32 @@ button.primary {
   margin: 0;
 }
 
+.password-input {
+  position: relative;
+  display: flex;
+}
+
+.password-input input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.icon-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  color: var(--text);
+}
+
 .account {
   display: flex;
   align-items: center;
